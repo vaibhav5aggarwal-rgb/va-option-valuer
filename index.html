@@ -149,7 +149,7 @@ async function getSuggestions(){
        selectedSymbol=item.symbol;
        document.getElementById("stock").value=item.name;
        closeSuggestions();
-       setStatus("Selected "+item.name+" ("+item.symbol.replace(/\.NS$/i,"")+") • NSE",true);
+       fetchStock();
      };
      box.appendChild(row);
    });
