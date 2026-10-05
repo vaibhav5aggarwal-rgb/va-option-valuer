@@ -13,34 +13,52 @@ export default async function handler(req, res) {
     if (!raw) return res.status(400).json({ error: "Missing stock name" });
     if (raw.length > 80) return res.status(400).json({ error: "Stock name is too long" });
 
-    const searchUrl =
-      "https://query1.finance.yahoo.com/v1/finance/search?q=" +
-      encodeURIComponent(raw) + "&quotesCount=12&newsCount=0";
+    let symbol = "";
+    let displayName = "";
 
-    const searchResp = await fetch(searchUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
-    });
-    if (!searchResp.ok) throw new Error("search_failed");
+    // When autocomplete has already selected an NSE symbol, use it exactly.
+    if (/^[A-Za-z0-9&._-]+\.NS$/i.test(raw)) {
+      symbol = raw.toUpperCase();
+    } else {
+      const searchUrl =
+        "https://query1.finance.yahoo.com/v1/finance/search?q=" +
+        encodeURIComponent(raw) + "&quotesCount=12&newsCount=0";
 
-    const searchData = await searchResp.json();
-    const quotes = Array.isArray(searchData?.quotes) ? searchData.quotes : [];
-
-    const matches = quotes
-      .filter(x => x && x.quoteType === "EQUITY")
-      .map(x => ({
-        symbol: String(x.symbol || ""),
-        name: String(x.longname || x.shortname || x.symbol || "")
-      }))
-      .filter(x => x.symbol.endsWith(".NS"));
-
-    if (!matches.length) {
-      return res.status(404).json({
-        error: "NSE stock not found. Try the company name or NSE symbol."
+      const searchResp = await fetch(searchUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
       });
-    }
+      if (!searchResp.ok) throw new Error("search_failed");
 
-    const match = matches[0];
-    const symbol = match.symbol;
+      const searchData = await searchResp.json();
+      const quotes = Array.isArray(searchData?.quotes) ? searchData.quotes : [];
+
+      const term = raw.toLowerCase();
+      const matches = quotes
+        .filter(x => x && x.quoteType === "EQUITY" && String(x.symbol || "").endsWith(".NS"))
+        .map(x => {
+          const s = String(x.symbol || "");
+          const n = String(x.longname || x.shortname || s.replace(".NS", ""));
+          const base = s.replace(/\.NS$/i, "").toLowerCase();
+          const nl = n.toLowerCase();
+          let score = 0;
+          if (base === term) score += 1000;
+          if (nl === term) score += 900;
+          if (base.startsWith(term)) score += 600;
+          if (nl.startsWith(term)) score += 500;
+          if (base.includes(term)) score += 250;
+          if (nl.includes(term)) score += 150;
+          return { symbol: s, name: n, score };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      if (!matches.length) {
+        return res.status(404).json({
+          error: "NSE stock not found. Select a stock from the suggestions."
+        });
+      }
+      symbol = matches[0].symbol;
+      displayName = matches[0].name;
+    }
 
     const chartUrl =
       "https://query1.finance.yahoo.com/v8/finance/chart/" +
@@ -62,12 +80,8 @@ export default async function handler(req, res) {
 
     const quote = result?.indicators?.quote?.[0];
     const opens = Array.isArray(quote?.open) ? quote.open : [];
-
-    // Yahoo may expose regularMarketOpen as 0/missing.
-    // Prefer that value only when it is a positive number.
     let open = Number(meta.regularMarketOpen);
 
-    // Otherwise use the first valid intraday candle open.
     if (!Number.isFinite(open) || open <= 0) {
       for (let i = 0; i < opens.length; i++) {
         const candidate = Number(opens[i]);
@@ -84,9 +98,11 @@ export default async function handler(req, res) {
       });
     }
 
+    displayName = displayName || String(meta.longName || meta.shortName || symbol.replace(".NS", ""));
+
     return res.status(200).json({
       symbol,
-      name: match.name,
+      name: displayName,
       cmp,
       previousClose: prev,
       open,
