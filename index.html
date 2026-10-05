@@ -144,7 +144,9 @@ async function getSuggestions(){
    data.results.forEach(function(item){
      var row=document.createElement("div");
      row.className="suggestion";
-     row.innerHTML='<div class="name">'+escapeHtml(item.name)+'</div><div class="symbol">'+escapeHtml(item.symbol.replace(/\.NS$/i,''))+' • NSE</div>';
+     var marketLabel=item.type==="INDEX"?"INDEX":"NSE";
+     var codeLabel=item.type==="INDEX"?item.name:"NSE";
+     row.innerHTML='<div class="name">'+escapeHtml(item.name)+'</div><div class="symbol">'+escapeHtml(codeLabel)+' • '+marketLabel+'</div>';
      row.onclick=function(){
        selectedSymbol=item.symbol;
        document.getElementById("stock").value=item.name;
