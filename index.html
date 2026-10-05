@@ -13,11 +13,16 @@ h1{margin:0 0 5px;font-size:28px}.sub{color:#666;font-size:13px;margin-bottom:15
 label{display:block;font-weight:700;font-size:13px;margin:12px 0 6px}
 input{width:100%;height:46px;padding:0 12px;border:1px solid #ccc;border-radius:10px;font-size:17px}
 input:focus{outline:none;border-color:#111827}
+input[readonly]{background:#f8fafc}
 .toggle{display:flex;gap:4px;background:#eee;padding:3px;border-radius:10px}
 .toggle button{flex:1;height:42px;border:0;border-radius:8px;font-weight:700;font-size:15px}
 .toggle .on{background:#111827;color:#fff}
-#calc{width:100%;height:50px;margin-top:16px;background:#111827;color:#fff;border:0;border-radius:10px;font-size:16px;font-weight:700}
+.action{width:100%;height:48px;border:0;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+#fetchBtn{margin-top:10px;background:#e5e7eb;color:#111827}
+#calc{margin-top:16px;background:#111827;color:#fff}
+#fetchBtn:disabled,#calc:disabled{opacity:.55;cursor:wait}
 #error{display:none;color:#b91c1c;background:#fee2e2;padding:10px;border-radius:8px;margin-top:10px;font-size:13px}
+#stockStatus{display:none;margin-top:9px;font-size:12px;color:#4b5563}
 #results{display:none}
 .title{font-size:20px;font-weight:800;margin-bottom:5px}
 .row{display:flex;justify-content:space-between;gap:15px;padding:13px 0;border-bottom:1px solid #eee}
@@ -29,21 +34,38 @@ input:focus{outline:none;border-color:#111827}
 <div class="wrap">
 <div class="card">
 <h1>VA Option Valuer</h1>
-<div class="sub">Quick breakeven & movement calculator</div>
+<div class="sub">Enter the stock and trade details</div>
+
 <label>Option Type</label>
 <div class="toggle">
 <button id="call" class="on" type="button" onclick="setType('CALL')">CALL</button>
 <button id="put" type="button" onclick="setType('PUT')">PUT</button>
 </div>
-<label>Stock Name</label><input id="stock" type="text" placeholder="Tech Mahindra">
-<label>CMP</label><input id="cmp" type="number" step="any" inputmode="decimal">
-<label>Previous Close</label><input id="prev" type="number" step="any" inputmode="decimal">
-<label>Open Price</label><input id="open" type="number" step="any" inputmode="decimal">
-<label>Target Price</label><input id="target" type="number" step="any" inputmode="decimal">
-<label>Option Price</label><input id="opt" type="number" step="any" inputmode="decimal">
-<button id="calc" type="button" onclick="calculate()">CALCULATE</button>
+
+<label>Stock Name / NSE Symbol</label>
+<input id="stock" type="text" placeholder="e.g. Reliance, TCS, Tech Mahindra">
+<button id="fetchBtn" class="action" type="button" onclick="fetchStock()">FETCH STOCK DATA</button>
+<div id="stockStatus"></div>
+
+<label>CMP <span style="font-weight:400;color:#777">(auto)</span></label>
+<input id="cmp" type="number" step="any" inputmode="decimal" readonly>
+
+<label>Previous Close <span style="font-weight:400;color:#777">(auto)</span></label>
+<input id="prev" type="number" step="any" inputmode="decimal" readonly>
+
+<label>Open Price <span style="font-weight:400;color:#777">(auto)</span></label>
+<input id="open" type="number" step="any" inputmode="decimal" readonly>
+
+<label>Target Price</label>
+<input id="target" type="number" step="any" inputmode="decimal" inputmode="decimal">
+
+<label>Option Price</label>
+<input id="opt" type="number" step="any" inputmode="decimal">
+
+<button id="calc" class="action" type="button" onclick="calculate()">CALCULATE</button>
 <div id="error"></div>
 </div>
+
 <div class="card" id="results">
 <div class="title" id="rStock"></div>
 <div class="row"><span>Breakeven Target Price</span><span class="val" id="rBE"></span></div>
@@ -53,28 +75,94 @@ input:focus{outline:none;border-color:#111827}
 <div class="row"><span>Rise from Previous Close to Open</span><span class="val" id="rOpen"></span></div>
 <div class="row"><span>Days to Breakeven as per CMP Movement</span><span class="val" id="rDays"></span></div>
 </div>
-<div class="note">Calculations follow the VA Option Valuer Excel logic.</div>
+<div class="note">Stock data is fetched for NSE-listed equities. Option Price and Target Price remain manual inputs. Calculator formulas follow the VA Option Valuer Excel logic.</div>
 </div>
+
 <script>
 var type="CALL";
-function setType(t){type=t;document.getElementById("call").className=t==="CALL"?"on":"";document.getElementById("put").className=t==="PUT"?"on":""}
+function setType(t){
+ type=t;
+ document.getElementById("call").className=t==="CALL"?"on":"";
+ document.getElementById("put").className=t==="PUT"?"on":"";
+}
 function money(x){return "₹"+x.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})}
 function percent(x){return (x>=0?"+":"")+(x*100).toFixed(2)+"%"}
-function calculate(){
-var stock=document.getElementById("stock").value.trim(),cmp=parseFloat(document.getElementById("cmp").value),prev=parseFloat(document.getElementById("prev").value),open=parseFloat(document.getElementById("open").value),target=parseFloat(document.getElementById("target").value),opt=parseFloat(document.getElementById("opt").value),error=document.getElementById("error");
-if(!stock||![cmp,prev,open,target,opt].every(isFinite)){error.innerHTML="Please enter all six inputs.";error.style.display="block";return}
-if(cmp===0||prev===0){error.innerHTML="CMP and Previous Close cannot be zero.";error.style.display="block";return}
-error.style.display="none";
-var be=type==="CALL"?target+opt:target-opt,riseBE=(be-prev)/prev,riseCMPBE=(be-cmp)/cmp,riseCMP=(cmp-prev)/prev,riseOpen=(open-prev)/prev,days=riseCMP===0?NaN:riseBE/riseCMP;
-document.getElementById("rStock").innerHTML=stock+" &bull; "+type;
-document.getElementById("rBE").innerHTML=money(be);
-document.getElementById("rRiseBE").innerHTML=percent(riseBE);
-document.getElementById("rCMPBE").innerHTML=percent(riseCMPBE);
-document.getElementById("rCMP").innerHTML=percent(riseCMP);
-document.getElementById("rOpen").innerHTML=percent(riseOpen);
-document.getElementById("rDays").innerHTML=isFinite(days)?days.toFixed(2):"N/A";
-document.getElementById("results").style.display="block";
+function setStatus(msg,show){
+ var el=document.getElementById("stockStatus");
+ el.innerHTML=msg;
+ el.style.display=show?"block":"none";
 }
+function showError(msg){
+ var el=document.getElementById("error");
+ el.innerHTML=msg;
+ el.style.display="block";
+}
+function clearError(){document.getElementById("error").style.display="none"}
+
+async function fetchStock(){
+ clearError();
+ var q=document.getElementById("stock").value.trim();
+ if(!q){showError("Enter a stock name or NSE symbol first.");return}
+ var btn=document.getElementById("fetchBtn");
+ btn.disabled=true;
+ btn.innerText="FETCHING...";
+ setStatus("Looking up the NSE stock…",true);
+ try{
+   var resp=await fetch("/api/quote?q="+encodeURIComponent(q),{cache:"no-store"});
+   var data=await resp.json();
+   if(!resp.ok) throw new Error(data.error||"Unable to fetch stock data.");
+   document.getElementById("stock").value=data.name||q;
+   document.getElementById("cmp").value=Number(data.cmp).toFixed(2);
+   document.getElementById("prev").value=Number(data.previousClose).toFixed(2);
+   document.getElementById("open").value=Number(data.open).toFixed(2);
+   setStatus((data.symbol||"")+(data.exchange?" • "+data.exchange:"")+" • updated "+new Date(data.fetchedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"}),true);
+ }catch(e){
+   setStatus("",false);
+   showError(e.message||"Unable to fetch stock data right now.");
+ }finally{
+   btn.disabled=false;
+   btn.innerText="FETCH STOCK DATA";
+ }
+}
+
+function calculate(){
+ clearError();
+ var stock=document.getElementById("stock").value.trim();
+ var cmp=parseFloat(document.getElementById("cmp").value);
+ var prev=parseFloat(document.getElementById("prev").value);
+ var open=parseFloat(document.getElementById("open").value);
+ var target=parseFloat(document.getElementById("target").value);
+ var opt=parseFloat(document.getElementById("opt").value);
+
+ if(!stock||![cmp,prev,open,target,opt].every(isFinite)){
+   showError("Please fetch the stock data first, then enter Target Price and Option Price.");
+   return;
+ }
+ if(cmp===0||prev===0){
+   showError("CMP and Previous Close cannot be zero.");
+   return;
+ }
+
+ var be=type==="CALL"?target+opt:target-opt;
+ var riseBE=(be-prev)/prev;
+ var riseCMPBE=(be-cmp)/cmp;
+ var riseCMP=(cmp-prev)/prev;
+ var riseOpen=(open-prev)/prev;
+ var days=riseCMP===0?NaN:riseBE/riseCMP;
+
+ document.getElementById("rStock").innerHTML=stock+" &bull; "+type;
+ document.getElementById("rBE").innerHTML=money(be);
+ document.getElementById("rRiseBE").innerHTML=percent(riseBE);
+ document.getElementById("rCMPBE").innerHTML=percent(riseCMPBE);
+ document.getElementById("rCMP").innerHTML=percent(riseCMP);
+ document.getElementById("rOpen").innerHTML=percent(riseOpen);
+ document.getElementById("rDays").innerHTML=isFinite(days)?days.toFixed(2):"N/A";
+ document.getElementById("results").style.display="block";
+}
+
+document.getElementById("stock").addEventListener("keydown",function(e){
+ if(e.key==="Enter") fetchStock();
+});
 </script>
 </body>
 </html>
