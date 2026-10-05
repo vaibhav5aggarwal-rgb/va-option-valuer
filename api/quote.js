@@ -11,7 +11,60 @@ export default async function handler(req, res) {
   try {
     const raw = String(req.query?.q || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing stock or index" });
-    if (raw.length > 80) return res.status(400).json({ error: "Name is too long" });
+
+    let symbol = "";
+    let displayName = "";
+
+    // Moneycontrol stock selected from autocomplete.
+    if (raw.startsWith("MC:")) {
+      const scId = raw.slice(3).trim();
+      if (!scId) return res.status(400).json({ error: "Invalid stock selection" });
+
+      const url = "https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/" +
+        encodeURIComponent(scId);
+
+      const resp = await fetch(url, {
+        headers: {
+          "Accept": "application/json, text/plain, */*",
+          "Referer": "https://www.moneycontrol.com/",
+          "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0"
+        }
+      });
+
+      if (!resp.ok) throw new Error("moneycontrol_quote_failed");
+
+      const payload = await resp.json();
+      const data = payload?.data;
+
+      if (!data) throw new Error("moneycontrol_no_data");
+
+      const cmp = Number(data.pricecurrent ?? data.HP ?? data.lastPrice);
+      const prev = Number(data.priceprevclose ?? data.previousClose);
+      const open = Number(data.OPN ?? data.open ?? data.openPrice);
+
+      if (![cmp, prev, open].every(Number.isFinite)) {
+        throw new Error("moneycontrol_incomplete_data");
+      }
+
+      displayName = String(
+        data.SC_FULLNM ||
+        data.company ||
+        data.companyName ||
+        "NSE Stock"
+      );
+
+      return res.status(200).json({
+        symbol: data.NSEID || scId,
+        name: displayName,
+        cmp,
+        previousClose: prev,
+        open,
+        currency: "INR",
+        exchange: "NSE",
+        source: "Moneycontrol",
+        fetchedAt: new Date().toISOString()
+      });
+    }
 
     const knownIndexMap = {
       "NIFTY 50": "^NSEI",
@@ -20,13 +73,15 @@ export default async function handler(req, res) {
       "NIFTY BANK": "^NSEBANK",
       "BANK NIFTY": "^NSEBANK",
       "BANKNIFTY": "^NSEBANK",
-      "NIFTY BANKNIFTY": "^NSEBANK"
+      "NIFTY IT": "^CNXIT",
+      "NIFTY AUTO": "^CNXAUTO",
+      "NIFTY PHARMA": "^CNXPHARMA",
+      "NIFTY FINANCIAL SERVICES": "^CNXFINANCE",
+      "NIFTY MIDCAP 50": "^NSEMDCP50"
     };
 
-    let symbol = "";
-    let displayName = "";
-
     const upper = raw.toUpperCase();
+
     if (knownIndexMap[upper]) {
       symbol = knownIndexMap[upper];
     } else if (/^\^[A-Za-z0-9]+$/.test(raw)) {
@@ -45,7 +100,6 @@ export default async function handler(req, res) {
 
       const searchData = await searchResp.json();
       const quotes = Array.isArray(searchData?.quotes) ? searchData.quotes : [];
-
       const candidates = quotes.filter(x => {
         const s = String(x?.symbol || "");
         return x && (x.quoteType === "EQUITY" || x.quoteType === "INDEX") &&
@@ -58,15 +112,14 @@ export default async function handler(req, res) {
         });
       }
 
-      const first = candidates[0];
-      symbol = String(first.symbol);
-      displayName = String(first.longname || first.shortname || symbol.replace(".NS", ""));
+      symbol = String(candidates[0].symbol);
+      displayName = String(candidates[0].longname || candidates[0].shortname || symbol);
     }
 
     const chartUrl =
       "https://query1.finance.yahoo.com/v8/finance/chart/" +
       encodeURIComponent(symbol) +
-      "?range=1d&interval=1m&includePrePost=false&events=div%2Csplits";
+      "?range=1d&interval=1m&includePrePost=false";
 
     const chartResp = await fetch(chartUrl, {
       headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
@@ -100,7 +153,9 @@ export default async function handler(req, res) {
       });
     }
 
-    displayName = displayName || String(meta.longName || meta.shortName || symbol.replace(".NS", "").replace("^", ""));
+    displayName =
+      displayName ||
+      String(meta.longName || meta.shortName || symbol.replace(".NS", "").replace("^", ""));
 
     return res.status(200).json({
       symbol,
@@ -114,6 +169,8 @@ export default async function handler(req, res) {
       fetchedAt: new Date().toISOString()
     });
   } catch (err) {
-    return res.status(502).json({ error: "Unable to fetch market data right now." });
+    return res.status(502).json({
+      error: "Unable to fetch market data right now."
+    });
   }
 }
