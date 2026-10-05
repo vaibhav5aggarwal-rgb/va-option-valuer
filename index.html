@@ -52,10 +52,10 @@ input[readonly]{background:#f8fafc}
 
 <label>Stock / Index Name</label>
 <div class="stock-wrap">
-<input id="stock" type="text" placeholder="e.g. Reliance, NIFTY, Bank NIFTY" autocomplete="off">
+<input id="stock" type="text" placeholder="Type at least 3 characters" autocomplete="off">
 <div id="suggestions"></div>
 </div>
-<div id="stockHint">After 4 characters, choose the exact NSE stock or index.</div>
+<div id="stockHint">After 3 characters, choose the exact NSE stock or index.</div>
 <button id="fetchBtn" class="action" type="button" onclick="fetchStock()">FETCH STOCK DATA</button>
 <div id="stockStatus"></div>
 
@@ -130,7 +130,7 @@ async function getSuggestions(){
  var q=document.getElementById("stock").value.trim();
  selectedSymbol="";
  clearError();
- if(q.length<4){closeSuggestions();return}
+ if(q.length<3){closeSuggestions();return}
 
  var requestId=++activeRequest;
  try{
@@ -165,7 +165,7 @@ function escapeHtml(s){
 async function fetchStock(){
  clearError();
  var q=selectedSymbol || document.getElementById("stock").value.trim();
- if(!q){showError("Enter at least 4 characters and select the exact NSE company.");return}
+ if(!q){showError("Enter at least 3 characters and select the exact NSE stock or index.");return}
  var btn=document.getElementById("fetchBtn");
  btn.disabled=true;
  btn.innerText="FETCHING...";
