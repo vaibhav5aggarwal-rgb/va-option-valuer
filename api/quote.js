@@ -60,38 +60,20 @@ export default async function handler(req, res) {
     const cmp = Number(meta.regularMarketPrice);
     const prev = Number(meta.previousClose);
 
-    // Yahoo may expose regularMarketOpen as 0/missing.
-    // In that case use the first valid intraday opening price.
-    let open = Number(meta.regularMarketOpen);
-    if (!Number.isFinite(open) || open <= 0) {
-      const opens = result?.indicators?.quote?.[0]?.open;
-      if (Array.isArray(opens)) {
-        for (let i = 0; i < opens.length; i++) {
-          const candidate = Number(opens[i]);
-          if (Number.isFinite(candidate) && candidate > 0) {
-            open = candidate;
-            break;
-          }
-        }
-      }
-    }
+    const quote = result?.indicators?.quote?.[0];
+    const opens = Array.isArray(quote?.open) ? quote.open : [];
 
-    // Final fallback: use the first valid candle OHLC open from any available quote series.
+    // Yahoo may expose regularMarketOpen as 0/missing.
+    // Prefer that value only when it is a positive number.
+    let open = Number(meta.regularMarketOpen);
+
+    // Otherwise use the first valid intraday candle open.
     if (!Number.isFinite(open) || open <= 0) {
-      const quote = result?.indicators?.quote?.[0];
-      const highs = quote?.high;
-      const lows = quote?.low;
-      const closes = quote?.close;
-      const vols = quote?.volume;
-      if (Array.isArray(highs) && Array.isArray(lows) && Array.isArray(closes)) {
-        for (let i = 0; i < closes.length; i++) {
-          const c = Number(closes[i]);
-          const h = Number(highs[i]);
-          const l = Number(lows[i]);
-          if (Number.isFinite(c) && c > 0 && Number.isFinite(h) && Number.isFinite(l)) {
-            open = Number(opens?.[i]);
-            break;
-          }
+      for (let i = 0; i < opens.length; i++) {
+        const candidate = Number(opens[i]);
+        if (Number.isFinite(candidate) && candidate > 0) {
+          open = candidate;
+          break;
         }
       }
     }
