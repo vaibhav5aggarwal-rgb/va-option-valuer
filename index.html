@@ -11,6 +11,7 @@ body{margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,"S
 .card{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 3px 12px rgba(0,0,0,.08)}
 h1{margin:0 0 5px;font-size:28px}.sub{color:#666;font-size:13px;margin-bottom:15px}
 label{display:block;font-weight:700;font-size:13px;margin:12px 0 6px}
+.stock-wrap{position:relative}
 input{width:100%;height:46px;padding:0 12px;border:1px solid #ccc;border-radius:10px;font-size:17px}
 input:focus{outline:none;border-color:#111827}
 input[readonly]{background:#f8fafc}
@@ -21,6 +22,13 @@ input[readonly]{background:#f8fafc}
 #fetchBtn{margin-top:10px;background:#e5e7eb;color:#111827}
 #calc{margin-top:16px;background:#111827;color:#fff}
 #fetchBtn:disabled,#calc:disabled{opacity:.55;cursor:wait}
+#suggestions{display:none;position:absolute;left:0;right:0;top:48px;background:#fff;border:1px solid #d1d5db;border-radius:0 0 10px 10px;box-shadow:0 6px 16px rgba(0,0,0,.12);z-index:20;overflow:hidden}
+.suggestion{padding:11px 12px;border-bottom:1px solid #eee;cursor:pointer}
+.suggestion:last-child{border-bottom:0}
+.suggestion:hover{background:#f8fafc}
+.suggestion .name{font-weight:700;font-size:14px}
+.suggestion .symbol{font-size:12px;color:#6b7280;margin-top:2px}
+#stockHint{font-size:11px;color:#777;margin-top:5px}
 #error{display:none;color:#b91c1c;background:#fee2e2;padding:10px;border-radius:8px;margin-top:10px;font-size:13px}
 #stockStatus{display:none;margin-top:9px;font-size:12px;color:#4b5563}
 #results{display:none}
@@ -42,8 +50,12 @@ input[readonly]{background:#f8fafc}
 <button id="put" type="button" onclick="setType('PUT')">PUT</button>
 </div>
 
-<label>Stock Name / NSE Symbol</label>
-<input id="stock" type="text" placeholder="e.g. Reliance, TCS, Tech Mahindra">
+<label>Stock Name</label>
+<div class="stock-wrap">
+<input id="stock" type="text" placeholder="Type at least 4 characters" autocomplete="off">
+<div id="suggestions"></div>
+</div>
+<div id="stockHint">After 4 characters, choose the exact NSE-listed company.</div>
 <button id="fetchBtn" class="action" type="button" onclick="fetchStock()">FETCH STOCK DATA</button>
 <div id="stockStatus"></div>
 
@@ -75,12 +87,15 @@ input[readonly]{background:#f8fafc}
 <div class="row"><span>Rise from Previous Close to Open</span><span class="val" id="rOpen"></span></div>
 <div class="row"><span>Days to Breakeven as per CMP Movement</span><span class="val" id="rDays"></span></div>
 </div>
-<div class="note">Stock data is fetched for NSE-listed equities. Option Price and Target Price remain manual inputs. Calculator formulas follow the VA Option Valuer Excel logic.</div>
+<div class="note">Choose the exact NSE company from the suggestions. Stock prices are fetched automatically; Target Price and Option Price remain manual.</div>
 </div>
 
 <script>
 var type="CALL";
 var API_BASE="https://va-option-valuer-69a8.vercel.app";
+var selectedSymbol="";
+var suggestTimer=null;
+var activeRequest=0;
 
 function setType(t){
  type=t;
@@ -101,25 +116,71 @@ function showError(msg){
 }
 function clearError(){document.getElementById("error").style.display="none"}
 
+function closeSuggestions(){
+ document.getElementById("suggestions").style.display="none";
+}
+function clearSelectedSymbol(){
+ selectedSymbol="";
+ document.getElementById("cmp").value="";
+ document.getElementById("prev").value="";
+ document.getElementById("open").value="";
+}
+
+async function getSuggestions(){
+ var q=document.getElementById("stock").value.trim();
+ selectedSymbol="";
+ clearError();
+ if(q.length<4){closeSuggestions();return}
+
+ var requestId=++activeRequest;
+ try{
+   var resp=await fetch(API_BASE+"/api/search?q="+encodeURIComponent(q),{cache:"no-store"});
+   var data=await resp.json();
+   if(requestId!==activeRequest) return;
+   var box=document.getElementById("suggestions");
+   box.innerHTML="";
+   if(!resp.ok || !Array.isArray(data.results) || !data.results.length){closeSuggestions();return}
+
+   data.results.forEach(function(item){
+     var row=document.createElement("div");
+     row.className="suggestion";
+     row.innerHTML='<div class="name">'+escapeHtml(item.name)+'</div><div class="symbol">'+escapeHtml(item.symbol.replace(/\.NS$/i,''))+' • NSE</div>';
+     row.onclick=function(){
+       selectedSymbol=item.symbol;
+       document.getElementById("stock").value=item.name;
+       closeSuggestions();
+       setStatus("Selected "+item.name+" ("+item.symbol.replace(/\.NS$/i,"")+") • NSE",true);
+     };
+     box.appendChild(row);
+   });
+   box.style.display="block";
+ }catch(e){
+   if(requestId===activeRequest) closeSuggestions();
+ }
+}
+function escapeHtml(s){
+ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]});
+}
+
 async function fetchStock(){
  clearError();
- var q=document.getElementById("stock").value.trim();
- if(!q){showError("Enter a stock name or NSE symbol first.");return}
+ var q=selectedSymbol || document.getElementById("stock").value.trim();
+ if(!q){showError("Enter at least 4 characters and select the exact NSE company.");return}
  var btn=document.getElementById("fetchBtn");
  btn.disabled=true;
  btn.innerText="FETCHING...";
- setStatus("Looking up the NSE stock…",true);
+ setStatus("Fetching NSE stock data…",true);
  try{
    var resp=await fetch(API_BASE+"/api/quote?q="+encodeURIComponent(q),{cache:"no-store"});
    var data=await resp.json();
    if(!resp.ok) throw new Error(data.error||"Unable to fetch stock data.");
-   document.getElementById("stock").value=data.name||q;
+   selectedSymbol=data.symbol;
+   document.getElementById("stock").value=data.name||document.getElementById("stock").value;
    document.getElementById("cmp").value=Number(data.cmp).toFixed(2);
    document.getElementById("prev").value=Number(data.previousClose).toFixed(2);
    document.getElementById("open").value=Number(data.open).toFixed(2);
    setStatus((data.symbol||"")+(data.exchange?" • "+data.exchange:"")+" • updated "+new Date(data.fetchedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"}),true);
  }catch(e){
-   setStatus("",false);
    showError(e.message||"Unable to fetch stock data right now.");
  }finally{
    btn.disabled=false;
@@ -137,7 +198,7 @@ function calculate(){
  var opt=parseFloat(document.getElementById("opt").value);
 
  if(!stock||![cmp,prev,open,target,opt].every(isFinite)){
-   showError("Please fetch the stock data first, then enter Target Price and Option Price.");
+   showError("Please select/fetch the stock data first, then enter Target Price and Option Price.");
    return;
  }
  if(cmp===0||prev===0){
@@ -162,8 +223,20 @@ function calculate(){
  document.getElementById("results").style.display="block";
 }
 
+document.getElementById("stock").addEventListener("input",function(){
+ clearSelectedSymbol();
+ setStatus("",false);
+ clearTimeout(suggestTimer);
+ suggestTimer=setTimeout(getSuggestions,300);
+});
 document.getElementById("stock").addEventListener("keydown",function(e){
- if(e.key==="Enter") fetchStock();
+ if(e.key==="Enter"){
+   closeSuggestions();
+   if(selectedSymbol) fetchStock();
+ }
+});
+document.addEventListener("click",function(e){
+ if(!e.target.closest(".stock-wrap")) closeSuggestions();
 });
 </script>
 </body>
