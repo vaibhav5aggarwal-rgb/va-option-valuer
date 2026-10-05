@@ -57,7 +57,7 @@ input[readonly]{background:#f8fafc}
 <input id="open" type="number" step="any" inputmode="decimal" readonly>
 
 <label>Target Price</label>
-<input id="target" type="number" step="any" inputmode="decimal" inputmode="decimal">
+<input id="target" type="number" step="any" inputmode="decimal">
 
 <label>Option Price</label>
 <input id="opt" type="number" step="any" inputmode="decimal">
@@ -80,6 +80,8 @@ input[readonly]{background:#f8fafc}
 
 <script>
 var type="CALL";
+var API_BASE="https://va-option-valuer-69a8.vercel.app";
+
 function setType(t){
  type=t;
  document.getElementById("call").className=t==="CALL"?"on":"";
@@ -108,7 +110,7 @@ async function fetchStock(){
  btn.innerText="FETCHING...";
  setStatus("Looking up the NSE stock…",true);
  try{
-   var resp=await fetch("/api/quote?q="+encodeURIComponent(q),{cache:"no-store"});
+   var resp=await fetch(API_BASE+"/api/quote?q="+encodeURIComponent(q),{cache:"no-store"});
    var data=await resp.json();
    if(!resp.ok) throw new Error(data.error||"Unable to fetch stock data.");
    document.getElementById("stock").value=data.name||q;
