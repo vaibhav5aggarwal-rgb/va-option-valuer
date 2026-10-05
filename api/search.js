@@ -14,9 +14,9 @@ export default async function handler(req, res) {
     if (raw.length > 80) return res.status(400).json({ error: "Search text is too long" });
 
     const term = raw.toLowerCase();
-    const compact = term.replace(/\s+/g, "");
+    const results = [];
 
-    // Common NSE indices. Names are deliberately first-class search targets.
+    // Explicit NSE indices used by the option valuer.
     const knownIndices = [
       { symbol: "^NSEI", name: "NIFTY 50" },
       { symbol: "^NSEBANK", name: "NIFTY BANK" },
@@ -27,87 +27,107 @@ export default async function handler(req, res) {
       { symbol: "^NSEMDCP50", name: "NIFTY MIDCAP 50" }
     ];
 
-    const indexResults = knownIndices.map(x => {
-      const name = x.name.toLowerCase();
-      const symbol = x.symbol.toLowerCase();
-      const nameCompact = name.replace(/\s+/g, "");
+    knownIndices.forEach(x => {
+      const n = x.name.toLowerCase();
+      const compact = n.replace(/\s+/g, "");
+      const queryCompact = term.replace(/\s+/g, "");
       let score = 0;
-
-      if (name === term || nameCompact === compact) score += 1200;
-      if (name.startsWith(term) || nameCompact.startsWith(compact)) score += 1100;
-      if (name.includes(term) || nameCompact.includes(compact)) score += 900;
-      if (symbol === term) score += 500;
-      if (symbol.includes(term)) score += 200;
-
-      return { symbol: x.symbol, name: x.name, type: "INDEX", score };
-    }).filter(x => x.score > 0);
-
-    const url =
-      "https://query1.finance.yahoo.com/v1/finance/search?q=" +
-      encodeURIComponent(raw) + "&quotesCount=30&newsCount=0";
-
-    const response = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
+      if (n === term || compact === queryCompact) score += 2000;
+      else if (n.startsWith(term) || compact.startsWith(queryCompact)) score += 1600;
+      else if (n.includes(term) || compact.includes(queryCompact)) score += 1200;
+      if (score) results.push({ symbol: x.symbol, name: x.name, type: "INDEX", score });
     });
 
-    if (!response.ok) throw new Error("search_failed");
+    // Moneycontrol's own autocomplete is the primary company-name search.
+    const mcUrl =
+      "https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php" +
+      "?classic=true&query=" + encodeURIComponent(raw) +
+      "&type=1&format=json&callback=suggest1";
 
-    const data = await response.json();
-    const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
+    const mcResp = await fetch(mcUrl, {
+      headers: {
+        "Accept": "text/javascript, application/javascript, application/json, */*",
+        "Referer": "https://www.moneycontrol.com/",
+        "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0",
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    });
 
-    const equityResults = quotes
-      .filter(x => {
-        const s = String(x?.symbol || "");
-        return x && x.quoteType === "EQUITY" && s.endsWith(".NS");
-      })
-      .map(x => {
-        const symbol = String(x.symbol || "");
-        const name = String(x.longname || x.shortname || symbol.replace(".NS", ""));
-        const baseSymbol = symbol.replace(/\.NS$/i, "");
-        const nameLower = name.toLowerCase();
-        const symbolLower = baseSymbol.toLowerCase();
-        const nameCompact = nameLower.replace(/[^a-z0-9]/g, "");
-        const queryCompact = compact.replace(/[^a-z0-9]/g, "");
+    if (mcResp.ok) {
+      const text = await mcResp.text();
+      const jsonText = text
+        .replace(/^\s*suggest1\(/, "")
+        .replace(/\)\s*;?\s*$/, "")
+        .trim();
 
-        // COMPANY NAME IS THE PRIMARY SEARCH CRITERION.
-        // This makes "qual" rank "Quality Power..." above unrelated symbols.
-        let score = 0;
-        if (nameLower === term || nameCompact === queryCompact) score += 1500;
-        if (nameLower.startsWith(term) || nameCompact.startsWith(queryCompact)) score += 1300;
-        if (nameLower.includes(term) || nameCompact.includes(queryCompact)) score += 1100;
+      let data = [];
+      try { data = JSON.parse(jsonText); } catch (_) { data = []; }
 
-        // Symbol matching is supported, but intentionally lower priority.
-        if (symbolLower === term) score += 700;
-        if (symbolLower.startsWith(term)) score += 500;
-        if (symbolLower.includes(term)) score += 250;
+      if (Array.isArray(data)) {
+        data.forEach(item => {
+          if (!item?.stock_name || !item?.sc_id) return;
 
-        return {
-          symbol,
-          name,
-          type: "EQUITY",
-          score
-        };
-      })
-      .filter(x => x.score > 0);
+          const name = String(item.stock_name).trim();
+          const nameLower = name.toLowerCase();
+          const compactName = nameLower.replace(/[^a-z0-9]/g, "");
+          const compactQuery = term.replace(/[^a-z0-9]/g, "");
 
-    const combined = [...indexResults, ...equityResults]
-      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+          let score = 100;
+          if (nameLower === term || compactName === compactQuery) score += 1800;
+          else if (nameLower.startsWith(term) || compactName.startsWith(compactQuery)) score += 1600;
+          else if (nameLower.includes(term) || compactName.includes(compactQuery)) score += 1200;
+
+          results.push({
+            symbol: "MC:" + String(item.sc_id),
+            name,
+            type: "EQUITY",
+            score
+          });
+        });
+      }
+    }
+
+    // Yahoo fallback for cases where Moneycontrol's autocomplete is temporarily unavailable.
+    if (!results.some(x => x.type === "EQUITY")) {
+      const url =
+        "https://query1.finance.yahoo.com/v1/finance/search?q=" +
+        encodeURIComponent(raw) + "&quotesCount=20&newsCount=0";
+
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const quotes = Array.isArray(data?.quotes) ? data.quotes : [];
+
+        quotes
+          .filter(x => x && x.quoteType === "EQUITY" && String(x.symbol || "").endsWith(".NS"))
+          .forEach(x => {
+            const symbol = String(x.symbol);
+            const name = String(x.longname || x.shortname || symbol.replace(".NS", ""));
+            const n = name.toLowerCase();
+            let score = 100;
+            if (n === term) score += 1500;
+            else if (n.startsWith(term)) score += 1300;
+            else if (n.includes(term)) score += 1100;
+            results.push({ symbol, name, type: "EQUITY", score });
+          });
+      }
+    }
 
     const seen = new Set();
-    const results = combined
+    const output = results
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
       .filter(x => {
         if (seen.has(x.symbol)) return false;
         seen.add(x.symbol);
         return true;
       })
       .slice(0, 8)
-      .map(x => ({
-        symbol: x.symbol,
-        name: x.name,
-        type: x.type
-      }));
+      .map(x => ({ symbol: x.symbol, name: x.name, type: x.type }));
 
-    return res.status(200).json({ results });
+    return res.status(200).json({ results: output });
   } catch (err) {
     return res.status(502).json({ error: "Unable to search stocks and indices right now." });
   }
