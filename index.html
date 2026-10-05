@@ -50,12 +50,12 @@ input[readonly]{background:#f8fafc}
 <button id="put" type="button" onclick="setType('PUT')">PUT</button>
 </div>
 
-<label>Stock Name</label>
+<label>Stock / Index Name</label>
 <div class="stock-wrap">
-<input id="stock" type="text" placeholder="Type at least 4 characters" autocomplete="off">
+<input id="stock" type="text" placeholder="e.g. Reliance, NIFTY, Bank NIFTY" autocomplete="off">
 <div id="suggestions"></div>
 </div>
-<div id="stockHint">After 4 characters, choose the exact NSE-listed company.</div>
+<div id="stockHint">After 4 characters, choose the exact NSE stock or index.</div>
 <button id="fetchBtn" class="action" type="button" onclick="fetchStock()">FETCH STOCK DATA</button>
 <div id="stockStatus"></div>
 
