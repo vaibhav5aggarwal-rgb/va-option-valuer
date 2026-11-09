@@ -94,7 +94,8 @@ input[readonly]{background:#f8fafc}
 
 <script>
 var type="CALL";
-var API_BASE="https://va-option-valuer-69a8.vercel.app";
+// Use the API belonging to the deployment serving this page.
+var API_BASE=window.location.origin;
 var selectedSymbol="";
 var suggestTimer=null;
 var activeRequest=0;
