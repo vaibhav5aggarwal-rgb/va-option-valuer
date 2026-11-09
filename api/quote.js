@@ -206,7 +206,8 @@ export default async function handler(req, res) {
     if (!meta) throw new Error("no_data");
 
     const cmp = Number(meta.regularMarketPrice);
-    const prev = Number(meta.previousClose);
+    // Yahoo may publish an index's previous close as chartPreviousClose.
+    const prev = Number(meta.previousClose ?? meta.chartPreviousClose);
     const quote = result?.indicators?.quote?.[0];
     const opens = Array.isArray(quote?.open) ? quote.open : [];
 
