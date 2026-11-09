@@ -24,7 +24,8 @@ export default async function handler(req, res) {
       { symbol: "^CNXAUTO", name: "NIFTY AUTO" },
       { symbol: "^CNXPHARMA", name: "NIFTY PHARMA" },
       { symbol: "^CNXFINANCE", name: "NIFTY FINANCIAL SERVICES" },
-      { symbol: "^NSEMDCP50", name: "NIFTY MIDCAP 50" }
+      { symbol: "^NSEMDCP50", name: "NIFTY MIDCAP 50" },
+      { symbol: "^BSESN", name: "SENSEX" }
     ];
 
     knownIndices.forEach(x => {
