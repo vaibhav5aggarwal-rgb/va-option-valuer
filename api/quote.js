@@ -23,7 +23,10 @@ export default async function handler(req, res) {
       "NIFTY AUTO": "^CNXAUTO",
       "NIFTY PHARMA": "^CNXPHARMA",
       "NIFTY FINANCIAL SERVICES": "^CNXFINANCE",
-      "NIFTY MIDCAP 50": "^NSEMDCP50"
+      "NIFTY MIDCAP 50": "^NSEMDCP50",
+      "SENSEX": "^BSESN",
+      "BSE SENSEX": "^BSESN",
+      "S&P BSE SENSEX": "^BSESN"
     };
 
     const indexNames = {
@@ -33,7 +36,8 @@ export default async function handler(req, res) {
       "^CNXAUTO": "NIFTY AUTO",
       "^CNXPHARMA": "NIFTY PHARMA",
       "^CNXFINANCE": "NIFTY FINANCIAL SERVICES",
-      "^NSEMDCP50": "NIFTY MIDCAP 50"
+      "^NSEMDCP50": "NIFTY MIDCAP 50",
+      "^BSESN": "SENSEX"
     };
 
     function cleanText(html) {
