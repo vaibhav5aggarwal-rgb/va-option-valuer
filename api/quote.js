@@ -180,14 +180,57 @@ export default async function handler(req, res) {
       displayName = String(candidates[0].longname || candidates[0].shortname || symbol);
     }
 
-    // Dedicated Moneycontrol path for NSE indices.
+    // Use Yahoo's daily candles for NSE indices. The live-markets HTML
+    // page is not a stable data interface and its text parsing can select
+    // unrelated numbers. Daily candles also retain the latest session open
+    // when the market is closed.
     if (indexNames[symbol]) {
-      try {
-        const indexQuote = await fetchMoneycontrolIndex(indexNames[symbol]);
-        return res.status(200).json(indexQuote);
-      } catch (_) {
-        // Fall through to Yahoo as a backup.
+      const chartUrl =
+        "https://query1.finance.yahoo.com/v8/finance/chart/" +
+        encodeURIComponent(symbol) +
+        "?range=5d&interval=1d&includePrePost=false";
+
+      const chartResp = await fetch(chartUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
+      });
+      if (!chartResp.ok) throw new Error("index_quote_failed");
+
+      const chartData = await chartResp.json();
+      const result = chartData?.chart?.result?.[0];
+      const meta = result?.meta;
+      if (!meta) throw new Error("index_no_data");
+
+      const quote = result?.indicators?.quote?.[0] || {};
+      const closes = Array.isArray(quote.close) ? quote.close : [];
+      const opens = Array.isArray(quote.open) ? quote.open : [];
+      const lastFinite = values => {
+        for (let i = values.length - 1; i >= 0; i--) {
+          const n = Number(values[i]);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
+        return NaN;
+      };
+
+      const cmp = Number(meta.regularMarketPrice) || lastFinite(closes);
+      const prev = Number(meta.chartPreviousClose ?? meta.previousClose) ||
+        (closes.length > 1 ? Number(closes[closes.length - 2]) : NaN);
+      const open = Number(meta.regularMarketOpen) || lastFinite(opens);
+
+      if (![cmp, prev, open].every(Number.isFinite) || open <= 0) {
+        throw new Error("index_market_data_incomplete");
       }
+
+      return res.status(200).json({
+        symbol,
+        name: indexNames[symbol],
+        cmp,
+        previousClose: prev,
+        open,
+        currency: meta.currency || "INR",
+        exchange: "NSE",
+        source: "Yahoo Finance",
+        fetchedAt: new Date().toISOString()
+      });
     }
 
     const chartUrl =
