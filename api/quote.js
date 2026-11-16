@@ -13,20 +13,20 @@ export default async function handler(req, res) {
     if (!raw) return res.status(400).json({ error: "Missing stock or index" });
 
     const knownIndexMap = {
-      "NIFTY 50": "^NSEI",
-      "NIFTY": "^NSEI",
-      "NIFTY50": "^NSEI",
-      "NIFTY BANK": "^NSEBANK",
-      "BANK NIFTY": "^NSEBANK",
-      "BANKNIFTY": "^NSEBANK",
-      "NIFTY IT": "^CNXIT",
-      "NIFTY AUTO": "^CNXAUTO",
-      "NIFTY PHARMA": "^CNXPHARMA",
-      "NIFTY FINANCIAL SERVICES": "^CNXFINANCE",
-      "NIFTY MIDCAP 50": "^NSEMDCP50",
-      "SENSEX": "^BSESN",
-      "BSE SENSEX": "^BSESN",
-      "S&P BSE SENSEX": "^BSESN"
+      "NIFTY 50": "MCIDX:in;NSX",
+      "NIFTY": "MCIDX:in;NSX",
+      "NIFTY50": "MCIDX:in;NSX",
+      "NIFTY BANK": "MCIDX:in;nbx",
+      "BANK NIFTY": "MCIDX:in;nbx",
+      "BANKNIFTY": "MCIDX:in;nbx",
+      "NIFTY IT": "MCIDX:in;NIT",
+      "NIFTY AUTO": "MCIDX:in;NAU",
+      "NIFTY PHARMA": "MCIDX:in;NPH",
+      "NIFTY FINANCIAL SERVICES": "MCIDX:in;NFS",
+      "NIFTY MIDCAP 50": "MCIDX:in;ccx",
+      "SENSEX": "MCIDX:in;SEN",
+      "BSE SENSEX": "MCIDX:in;SEN",
+      "S&P BSE SENSEX": "MCIDX:in;SEN"
     };
 
     const indexNames = {
@@ -102,6 +102,144 @@ export default async function handler(req, res) {
 
     let symbol = "";
     let displayName = "";
+
+    const moneycontrolIndexMap = {
+      "in;NSX": "NIFTY 50",
+      "in;nbx": "NIFTY BANK",
+      "in;NIT": "NIFTY IT",
+      "in;NAU": "NIFTY AUTO",
+      "in;NPH": "NIFTY PHARMA",
+      "in;NFS": "NIFTY FINANCIAL SERVICES",
+      "in;ccx": "NIFTY MIDCAP 100",
+      "in;SEN": "SENSEX"
+    };
+
+    async function fetchMoneycontrolIndex(indexCode, indexName) {
+      const radarUrl =
+        "https://appfeeds.moneycontrol.com/mcradar/processing_aws.php" +
+        "?callback=cbr&ep175406=&q_a=d";
+
+      const radarResp = await fetch(radarUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0",
+          "Accept": "text/javascript, application/javascript, */*",
+          "Referer": "https://www.moneycontrol.com/"
+        }
+      });
+
+      if (!radarResp.ok) throw new Error("index_radar_failed");
+
+      const radarText = await radarResp.text();
+      const jsonText = radarText
+        .replace(/^\s*cbr\(/, "")
+        .replace(/\)\s*;?\s*$/, "")
+        .trim();
+
+      const radar = JSON.parse(jsonText);
+      const all = [
+        ...(Array.isArray(radar?.s1) ? radar.s1 : []),
+        ...(Array.isArray(radar?.s2) ? radar.s2 : []),
+        ...(Array.isArray(radar?.s3) ? radar.s3 : [])
+      ];
+      const item = all.find(x => String(x?.icd || "").toLowerCase() === indexCode.toLowerCase());
+      if (!item) throw new Error("index_radar_item_missing");
+
+      const cmp = Number(String(item.pr || "").replace(/,/g, ""));
+      const change = Number(String(item.chg || "").replace(/,/g, ""));
+      const previousClose = cmp - change;
+
+      // Dedicated Moneycontrol index page supplies the session Open.
+      const pageMap = {
+        "in;NSX":"https://www.moneycontrol.com/indian-indices/nifty-50-9.html",
+        "in;nbx":"https://www.moneycontrol.com/indian-indices/nifty-bank-23.html",
+        "in;NIT":"https://www.moneycontrol.com/indian-indices/nifty-it-19.html",
+        "in;NAU":"https://www.moneycontrol.com/indian-indices/nifty-auto-52.html",
+        "in;NPH":"https://www.moneycontrol.com/indian-indices/nifty-pharma-41.html",
+        "in;SEN":"https://www.moneycontrol.com/indian-indices/sensex-4.html"
+      };
+
+      let open = NaN;
+      const pageUrl = pageMap[indexCode];
+      if (pageUrl) {
+        const pageResp = await fetch(pageUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/157.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml"
+          }
+        });
+
+        if (pageResp.ok) {
+          const html = await pageResp.text();
+          const text = html
+            .replace(/<script[\s\S]*?<\/script>/gi," ")
+            .replace(/<style[\s\S]*?<\/style>/gi," ")
+            .replace(/<[^>]+>/g," ")
+            .replace(/&nbsp;/gi," ")
+            .replace(/&amp;/gi,"&")
+            .replace(/\s+/g," ")
+            .trim();
+
+          const m = text.match(/Open\s+([\d,]+\.\d+)\s+Previous Close\s+([\d,]+\.\d+)/i);
+          if (m) open = Number(m[1].replace(/,/g,""));
+        }
+      }
+
+      // Structured Yahoo daily data as a backup for Open only.
+      if (!Number.isFinite(open) || open <= 0) {
+        const yahooMap = {
+          "in;NSX":"^NSEI",
+          "in;nbx":"^NSEBANK",
+          "in;NIT":"^CNXIT",
+          "in;NAU":"^CNXAUTO",
+          "in;NPH":"^CNXPHARMA",
+          "in;SEN":"^BSESN"
+        };
+        const yahooSymbol = yahooMap[indexCode];
+        if (yahooSymbol) {
+          const y = await fetch(
+            "https://query1.finance.yahoo.com/v8/finance/chart/" +
+            encodeURIComponent(yahooSymbol) +
+            "?range=5d&interval=1d&includePrePost=false",
+            { headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" } }
+          );
+          if (y.ok) {
+            const yd = await y.json();
+            const qr = yd?.chart?.result?.[0];
+            const oo = qr?.indicators?.quote?.[0]?.open;
+            if (Array.isArray(oo)) {
+              for (let i=oo.length-1;i>=0;i--) {
+                const n=Number(oo[i]);
+                if (Number.isFinite(n)&&n>0) { open=n; break; }
+              }
+            }
+          }
+        }
+      }
+
+      if (![cmp, previousClose, open].every(Number.isFinite) || open <= 0) {
+        throw new Error("index_data_incomplete");
+      }
+
+      return {
+        symbol: indexCode,
+        name: indexName,
+        cmp,
+        previousClose,
+        open,
+        currency: "INR",
+        exchange: indexCode === "in;SEN" ? "BSE" : "NSE",
+        source: "Moneycontrol",
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    if (raw.startsWith("MCIDX:")) {
+      const indexCode = raw.slice(6).trim();
+      const indexName = moneycontrolIndexMap[indexCode];
+      if (!indexName) return res.status(404).json({ error: "Unsupported index." });
+      const data = await fetchMoneycontrolIndex(indexCode, indexName);
+      return res.status(200).json(data);
+    }
 
     const upper = raw.toUpperCase();
 
