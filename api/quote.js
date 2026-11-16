@@ -13,6 +13,12 @@ export default async function handler(req, res) {
     if (!raw) return res.status(400).json({ error: "Missing stock or index" });
 
     const knownIndexMap = {
+      "GOLD MCX": "MCCOM:gold_mcx",
+      "GOLDMCX": "MCCOM:gold_mcx",
+      "GOLD": "MCCOM:gold_mcx",
+      "SILVER MCX": "MCCOM:silver_mcx",
+      "SILVERMCX": "MCCOM:silver_mcx",
+      "SILVER": "MCCOM:silver_mcx",
       "NIFTY 50": "^NSEI",
       "NIFTY": "^NSEI",
       "NIFTY50": "^NSEI",
@@ -96,6 +102,107 @@ export default async function handler(req, res) {
         currency: meta.currency || "INR",
         exchange: indexSymbol === "^BSESN" ? "BSE" : "NSE",
         source: "Yahoo Finance",
+        fetchedAt: new Date().toISOString()
+      };
+    }
+
+    async function fetchMoneycontrolCommodity(commodityCode, commodityName) {
+      const radarUrl =
+        "https://appfeeds.moneycontrol.com/mcradar/processing_aws.php" +
+        "?callback=cbr&ep175406=&q_a=d";
+
+      const radarResp = await fetch(radarUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0",
+          "Accept": "text/javascript, application/javascript, */*",
+          "Referer": "https://www.moneycontrol.com/"
+        }
+      });
+
+      if (!radarResp.ok) throw new Error("commodity_radar_failed");
+
+      const radarText = await radarResp.text();
+      const jsonText = radarText
+        .replace(/^\s*cbr\(/, "")
+        .replace(/\)\s*;?\s*$/, "")
+        .trim();
+
+      const radar = JSON.parse(jsonText);
+      const all = Array.isArray(radar?.s4) ? radar.s4 : [];
+      const item = all.find(x => String(x?.icd || "").toLowerCase() === commodityCode.toLowerCase());
+      if (!item) throw new Error("commodity_radar_item_missing");
+
+      const cmp = Number(String(item.pr || "").replace(/,/g, ""));
+      const change = Number(String(item.chg || "").replace(/,/g, ""));
+      const radarPreviousClose = cmp - change;
+      const expiry = String(item.expiry || "").trim();
+
+      const pageMap = {
+        "gold_mcx": "https://www.moneycontrol.com/commodity/mcx-gold-price",
+        "silver_mcx": "https://www.moneycontrol.com/commodity/mcx-silver-price"
+      };
+
+      function expiryToIso(value) {
+        const m = value.match(/^(\d{2})([A-Za-z]{3})(\d{4})$/);
+        if (!m) return "";
+        const months = {
+          JAN:"01",FEB:"02",MAR:"03",APR:"04",MAY:"05",JUN:"06",
+          JUL:"07",AUG:"08",SEP:"09",OCT:"10",NOV:"11",DEC:"12"
+        };
+        const month = months[m[2].toUpperCase()];
+        return month ? m[3] + "-" + month + "-" + m[1] : "";
+      }
+
+      let open = NaN;
+      let previousClose = radarPreviousClose;
+      const pageUrl = pageMap[commodityCode];
+      const expIso = expiryToIso(expiry);
+
+      if (pageUrl) {
+        const url = pageUrl +
+          "?classic=true" +
+          (expIso ? "&exp=" + encodeURIComponent(expIso) : "") +
+          "&type=futures";
+
+        const pageResp = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/157.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml"
+          }
+        });
+
+        if (pageResp.ok) {
+          const html = await pageResp.text();
+          const clean = html
+            .replace(/<script[\s\S]*?<\/script>/gi, " ")
+            .replace(/<style[\s\S]*?<\/style>/gi, " ")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&nbsp;/gi, " ")
+            .replace(/&amp;/gi, "&")
+            .replace(/\s+/g, " ")
+            .trim();
+
+          const m = clean.match(/Open\s*\|?\s*([\d,]+(?:\.\d+)?)\s+Previous Close\s*\|?\s*([\d,]+(?:\.\d+)?)/i);
+          if (m) {
+            open = Number(m[1].replace(/,/g, ""));
+            previousClose = Number(m[2].replace(/,/g, ""));
+          }
+        }
+      }
+
+      if (![cmp, previousClose, open].every(Number.isFinite) || open <= 0) {
+        throw new Error("commodity_data_incomplete");
+      }
+
+      return {
+        symbol: commodityCode,
+        name: commodityName,
+        cmp,
+        previousClose,
+        open,
+        currency: "INR",
+        exchange: "MCX",
+        source: "Moneycontrol",
         fetchedAt: new Date().toISOString()
       };
     }
@@ -233,6 +340,18 @@ export default async function handler(req, res) {
       };
     }
 
+    if (raw.startsWith("MCCOM:")) {
+      const commodityCode = raw.slice(6).trim().toLowerCase();
+      const commodityNames = {
+        "gold_mcx": "GOLD MCX",
+        "silver_mcx": "SILVER MCX"
+      };
+      const commodityName = commodityNames[commodityCode];
+      if (!commodityName) return res.status(404).json({ error: "Unsupported MCX commodity." });
+      const data = await fetchMoneycontrolCommodity(commodityCode, commodityName);
+      return res.status(200).json(data);
+    }
+
     if (raw.startsWith("MCIDX:")) {
       const indexCode = raw.slice(6).trim();
       const indexName = moneycontrolIndexMap[indexCode];
@@ -242,6 +361,18 @@ export default async function handler(req, res) {
     }
 
     const upper = raw.toUpperCase();
+
+    if (knownIndexMap[upper] && String(knownIndexMap[upper]).startsWith("MCCOM:")) {
+      const commodityCode = String(knownIndexMap[upper]).slice(6).trim().toLowerCase();
+      const commodityNames = {
+        "gold_mcx": "GOLD MCX",
+        "silver_mcx": "SILVER MCX"
+      };
+      const commodityName = commodityNames[commodityCode];
+      if (!commodityName) return res.status(404).json({ error: "Unsupported MCX commodity." });
+      const data = await fetchMoneycontrolCommodity(commodityCode, commodityName);
+      return res.status(200).json(data);
+    }
 
     if (knownIndexMap[upper]) {
       symbol = knownIndexMap[upper];
