@@ -39,6 +39,33 @@ export default async function handler(req, res) {
       if (score) results.push({ symbol: x.symbol, name: x.name, type: "INDEX", score });
     });
 
+    // Supported MCX commodities.
+    const knownCommodities = [
+      { symbol: "MCCOM:gold_mcx", name: "GOLD MCX", aliases: ["GOLD MCX", "GOLD"] },
+      { symbol: "MCCOM:silver_mcx", name: "SILVER MCX", aliases: ["SILVER MCX", "SILVERMCX", "SILVER"] }
+    ];
+
+    knownCommodities.forEach(x => {
+      const names = [x.name].concat(x.aliases || []);
+      let score = 0;
+      names.forEach(alias => {
+        const a = alias.toLowerCase();
+        const compact = a.replace(/\s+/g, "");
+        const queryCompact = term.replace(/\s+/g, "");
+        if (a === term || compact === queryCompact) score = Math.max(score, 2000);
+        else if (a.startsWith(term) || compact.startsWith(queryCompact)) score = Math.max(score, 1600);
+        else if (a.includes(term) || compact.includes(queryCompact)) score = Math.max(score, 1200);
+      });
+      if (score) results.push({ symbol: x.symbol, name: x.name, type: "COMMODITY", score });
+    });
+
+    const exactCommodity = results.find(x => x.type === "COMMODITY" && x.score === 2000);
+    if (exactCommodity) {
+      return res.status(200).json({
+        results: [{ symbol: exactCommodity.symbol, name: exactCommodity.name, type: exactCommodity.type }]
+      });
+    }
+
     const exactIndex = results.find(x => x.type === "INDEX" && x.score === 2000);
     if (exactIndex) {
       return res.status(200).json({
