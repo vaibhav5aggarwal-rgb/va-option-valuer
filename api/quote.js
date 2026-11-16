@@ -13,20 +13,20 @@ export default async function handler(req, res) {
     if (!raw) return res.status(400).json({ error: "Missing stock or index" });
 
     const knownIndexMap = {
-      "NIFTY 50": "MCIDX:in;NSX",
-      "NIFTY": "MCIDX:in;NSX",
-      "NIFTY50": "MCIDX:in;NSX",
-      "NIFTY BANK": "MCIDX:in;nbx",
-      "BANK NIFTY": "MCIDX:in;nbx",
-      "BANKNIFTY": "MCIDX:in;nbx",
-      "NIFTY IT": "MCIDX:in;NIT",
-      "NIFTY AUTO": "MCIDX:in;NAU",
-      "NIFTY PHARMA": "MCIDX:in;NPH",
-      "NIFTY FINANCIAL SERVICES": "MCIDX:in;NFS",
-      "NIFTY MIDCAP 50": "MCIDX:in;ccx",
-      "SENSEX": "MCIDX:in;SEN",
-      "BSE SENSEX": "MCIDX:in;SEN",
-      "S&P BSE SENSEX": "MCIDX:in;SEN"
+      "NIFTY 50": "^NSEI",
+      "NIFTY": "^NSEI",
+      "NIFTY50": "^NSEI",
+      "NIFTY BANK": "^NSEBANK",
+      "BANK NIFTY": "^NSEBANK",
+      "BANKNIFTY": "^NSEBANK",
+      "NIFTY IT": "^CNXIT",
+      "NIFTY AUTO": "^CNXAUTO",
+      "NIFTY PHARMA": "^CNXPHARMA",
+      "NIFTY FINANCIAL SERVICES": "^CNXFINANCE",
+      "NIFTY MIDCAP 50": "^NSEMDCP50",
+      "SENSEX": "^BSESN",
+      "BSE SENSEX": "^BSESN",
+      "S&P BSE SENSEX": "^BSESN"
     };
 
     const indexNames = {
