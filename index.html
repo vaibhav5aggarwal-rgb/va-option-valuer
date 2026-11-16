@@ -51,12 +51,12 @@ input[readonly]{background:#f8fafc}
 <button id="put" type="button" onclick="setType('PUT')">PUT</button>
 </div>
 
-<label>Stock / Index Name</label>
+<label>Stock / Index / Commodity Name</label>
 <div class="stock-wrap">
 <input id="stock" type="text" placeholder="Type at least 3 characters" autocomplete="off">
 <div id="suggestions"></div>
 </div>
-<div id="stockHint">After 3 characters, choose the exact NSE stock or index.</div>
+<div id="stockHint">After 3 characters, choose the exact NSE stock, index or MCX commodity.</div>
 <button id="fetchBtn" class="action" type="button" onclick="fetchStock()">FETCH STOCK DATA</button>
 <div id="stockStatus"></div>
 
@@ -89,7 +89,7 @@ input[readonly]{background:#f8fafc}
 <div class="row"><span>Rise from Previous Close to Open</span><span class="val" id="rOpen"></span></div>
 <div class="row"><span>Days to Breakeven as per CMP Movement</span><span class="val" id="rDays"></span></div>
 </div>
-<div class="note">Choose the exact NSE company from the suggestions. Stock prices are fetched automatically; Target Price and Option Price remain manual.</div>
+<div class="note">Choose the exact stock, index or MCX commodity from the suggestions. Market prices are fetched automatically; Target Price and Option Price remain manual.</div>
 </div>
 
 <script>
@@ -147,8 +147,8 @@ async function getSuggestions(){
    data.results.forEach(function(item){
      var row=document.createElement("div");
      row.className="suggestion";
-     var marketLabel=item.type==="INDEX"?"INDEX":"NSE";
-     var codeLabel=item.type==="INDEX"?item.name:"NSE";
+     var marketLabel=item.type==="INDEX"?"INDEX":(item.type==="COMMODITY"?"MCX":"NSE");
+     var codeLabel=item.type==="INDEX"?item.name:(item.type==="COMMODITY"?"MCX":"NSE");
      row.innerHTML='<div class="name">'+escapeHtml(item.name)+'</div><div class="symbol">'+escapeHtml(codeLabel)+' • '+marketLabel+'</div>';
      row.onclick=function(){
        selectedSymbol=item.symbol;
@@ -170,11 +170,11 @@ function escapeHtml(s){
 async function fetchStock(){
  clearError();
  var q=selectedSymbol || document.getElementById("stock").value.trim();
- if(!q){showError("Enter at least 3 characters and select the exact NSE stock or index.");return}
+ if(!q){showError("Enter at least 3 characters and select the exact NSE stock, index or MCX commodity.");return}
  var btn=document.getElementById("fetchBtn");
  btn.disabled=true;
  btn.innerText="FETCHING...";
- setStatus("Fetching NSE stock data…",true);
+ setStatus("Fetching market data…",true);
  try{
    var resp=await fetch(API_BASE+"/api/quote?q="+encodeURIComponent(q),{cache:"no-store"});
    var data=await resp.json();
