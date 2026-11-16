@@ -29,18 +29,34 @@ export default async function handler(req, res) {
       "S&P BSE SENSEX": "^BSESN"
     };
 
-    const indexNames = {
-      "^NSEI": "NIFTY 50",
-      "^NSEBANK": "NIFTY BANK",
-      "^CNXIT": "NIFTY IT",
-      "^CNXAUTO": "NIFTY AUTO",
-      "^CNXPHARMA": "NIFTY PHARMA",
-      "^CNXFINANCE": "NIFTY FINANCIAL SERVICES",
-      "^NSEMDCP50": "NIFTY MIDCAP 50",
-      "^BSESN": "SENSEX"
+    const indexPages = {
+      "^NSEI": {
+        name: "NIFTY 50",
+        url: "https://www.moneycontrol.com/indian-indices/nifty-9.html"
+      },
+      "^NSEBANK": {
+        name: "NIFTY BANK",
+        url: "https://www.moneycontrol.com/indian-indices/nifty-bank-23.html"
+      },
+      "^CNXIT": {
+        name: "NIFTY IT",
+        url: "https://www.moneycontrol.com/indian-indices/nifty-it-19.html"
+      },
+      "^CNXAUTO": {
+        name: "NIFTY AUTO",
+        url: "https://www.moneycontrol.com/indian-indices/nifty-auto-52.html"
+      },
+      "^CNXPHARMA": {
+        name: "NIFTY PHARMA",
+        url: "https://www.moneycontrol.com/indian-indices/nifty-pharma-41.html"
+      },
+      "^BSESN": {
+        name: "SENSEX",
+        url: "https://www.moneycontrol.com/indian-indices/sensex-4.html"
+      }
     };
 
-    function cleanText(html) {
+    function stripHtml(html) {
       return html
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
         .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -53,52 +69,92 @@ export default async function handler(req, res) {
         .trim();
     }
 
-    function numbersAfter(text, label) {
-      const idx = text.toLowerCase().indexOf(label.toLowerCase());
-      if (idx < 0) return null;
-
-      const slice = text.slice(idx + label.length, idx + label.length + 900);
-      const tokens = slice.match(/\d{1,3}(?:,\d{2,3})*\.\d+|\d+\.\d+/g) || [];
-
-      const values = tokens.map(Number).filter(Number.isFinite);
-      return values;
+    function parseMoney(v) {
+      const n = Number(String(v).replace(/,/g, ""));
+      return Number.isFinite(n) ? n : NaN;
     }
 
-    async function fetchMoneycontrolIndex(indexName) {
-      const pageResp = await fetch("https://www.moneycontrol.com/markets/indian-indices/live-markets", {
+    async function fetchIndex(indexSymbol) {
+      const cfg = indexPages[indexSymbol];
+      if (!cfg) throw new Error("unsupported_index");
+
+      const resp = await fetch(cfg.url, {
         headers: {
-          "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/157.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml"
         }
       });
 
-      if (!pageResp.ok) throw new Error("moneycontrol_index_page_failed");
+      if (!resp.ok) throw new Error("index_page_failed");
 
-      const html = await pageResp.text();
-      const text = cleanText(html);
-      const values = numbersAfter(text, indexName);
+      const text = stripHtml(await resp.text());
 
-      // Live Markets table ordering:
-      // Name | LTP | Chg | %Chg | Open | High | Low | ...
-      if (!values || values.length < 4) throw new Error("moneycontrol_index_data_missing");
+      // Moneycontrol's index detail pages expose these labels together:
+      // Open <value> Previous Close <value>
+      const m = text.match(
+        /Open\s+([\d,]+\.\d+)\s+Previous Close\s+([\d,]+\.\d+)/i
+      );
 
-      const cmp = values[0];
-      const change = values[1];
-      const open = values[3];
-      const previousClose = cmp - change;
+      if (!m) throw new Error("index_values_not_found");
 
-      if (![cmp, previousClose, open].every(Number.isFinite) || open <= 0) {
-        throw new Error("moneycontrol_index_data_invalid");
+      const open = parseMoney(m[1]);
+      const previousClose = parseMoney(m[2]);
+
+      // The current index level appears near the first occurrence of the index name.
+      const namePos = text.toLowerCase().indexOf(cfg.name.toLowerCase());
+      const afterName = namePos >= 0 ? text.slice(namePos, namePos + 500) : text;
+      const ltpMatches = afterName.match(/([\d,]+\.\d+)\s+(?:[-+]?\d+[\d,]*\.\d+)?\s*\(?[-+]?\d+(?:\.\d+)?%\)?/g);
+
+      let cmp = NaN;
+      if (ltpMatches && ltpMatches.length) {
+        const first = ltpMatches[0].match(/[\d,]+\.\d+/);
+        if (first) cmp = parseMoney(first[0]);
+      }
+
+      // More reliable fallback: find "Trade Now Open ...", then use the
+      // current index value shown immediately before Day Range.
+      if (!Number.isFinite(cmp)) {
+        const beforeOpen = text.slice(0, Math.max(0, text.indexOf("Open " + m[1])));
+        const allNums = beforeOpen.match(/[\d,]+\.\d+/g) || [];
+        for (let i = allNums.length - 1; i >= 0; i--) {
+          const n = parseMoney(allNums[i]);
+          if (Number.isFinite(n) && n > 0) {
+            // Don't mistake the previous close/open for the current value.
+            if (Math.abs(n - open) > 0.0001 && Math.abs(n - previousClose) > 0.0001) {
+              cmp = n;
+              break;
+            }
+          }
+        }
+      }
+
+      // If the page's displayed current value cannot be isolated safely,
+      // use the dedicated Yahoo real-time value only for CMP.
+      if (!Number.isFinite(cmp)) {
+        const chartResp = await fetch(
+          "https://query1.finance.yahoo.com/v8/finance/chart/" +
+          encodeURIComponent(indexSymbol) +
+          "?range=1d&interval=1m&includePrePost=false",
+          { headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" } }
+        );
+        if (chartResp.ok) {
+          const chart = await chartResp.json();
+          cmp = Number(chart?.chart?.result?.[0]?.meta?.regularMarketPrice);
+        }
+      }
+
+      if (![cmp, open, previousClose].every(Number.isFinite) || open <= 0) {
+        throw new Error("index_market_data_incomplete");
       }
 
       return {
-        symbol: Object.keys(indexNames).find(k => indexNames[k] === indexName) || "",
-        name: indexName,
+        symbol: indexSymbol,
+        name: cfg.name,
         cmp,
         previousClose,
         open,
         currency: "INR",
-        exchange: "NSE",
+        exchange: cfg.name === "SENSEX" ? "BSE" : "NSE",
         source: "Moneycontrol",
         fetchedAt: new Date().toISOString()
       };
@@ -117,7 +173,10 @@ export default async function handler(req, res) {
       const scId = raw.slice(3).trim();
       if (!scId) return res.status(400).json({ error: "Invalid stock selection" });
 
-      const url = "https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/" + encodeURIComponent(scId);
+      const url =
+        "https://priceapi.moneycontrol.com/pricefeed/nse/equitycash/" +
+        encodeURIComponent(scId);
+
       const resp = await fetch(url, {
         headers: {
           "Accept": "application/json, text/plain, */*",
@@ -140,7 +199,9 @@ export default async function handler(req, res) {
         throw new Error("moneycontrol_incomplete_data");
       }
 
-      displayName = String(data.SC_FULLNM || data.company || data.companyName || "NSE Stock");
+      displayName = String(
+        data.SC_FULLNM || data.company || data.companyName || "NSE Stock"
+      );
 
       return res.status(200).json({
         symbol: data.NSEID || scId,
@@ -181,62 +242,17 @@ export default async function handler(req, res) {
       }
 
       symbol = String(candidates[0].symbol);
-      displayName = String(candidates[0].longname || candidates[0].shortname || symbol);
+      displayName = String(
+        candidates[0].longname || candidates[0].shortname || symbol
+      );
     }
 
-    // Use Yahoo's daily candles for NSE indices. The live-markets HTML
-    // page is not a stable data interface and its text parsing can select
-    // unrelated numbers. Daily candles also retain the latest session open
-    // when the market is closed.
-    if (indexNames[symbol]) {
-      const chartUrl =
-        "https://query1.finance.yahoo.com/v8/finance/chart/" +
-        encodeURIComponent(symbol) +
-        "?range=5d&interval=1d&includePrePost=false";
-
-      const chartResp = await fetch(chartUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 VA-Option-Valuer/1.0" }
-      });
-      if (!chartResp.ok) throw new Error("index_quote_failed");
-
-      const chartData = await chartResp.json();
-      const result = chartData?.chart?.result?.[0];
-      const meta = result?.meta;
-      if (!meta) throw new Error("index_no_data");
-
-      const quote = result?.indicators?.quote?.[0] || {};
-      const closes = Array.isArray(quote.close) ? quote.close : [];
-      const opens = Array.isArray(quote.open) ? quote.open : [];
-      const lastFinite = values => {
-        for (let i = values.length - 1; i >= 0; i--) {
-          const n = Number(values[i]);
-          if (Number.isFinite(n) && n > 0) return n;
-        }
-        return NaN;
-      };
-
-      const cmp = Number(meta.regularMarketPrice) || lastFinite(closes);
-      const prev = Number(meta.chartPreviousClose ?? meta.previousClose) ||
-        (closes.length > 1 ? Number(closes[closes.length - 2]) : NaN);
-      const open = Number(meta.regularMarketOpen) || lastFinite(opens);
-
-      if (![cmp, prev, open].every(Number.isFinite) || open <= 0) {
-        throw new Error("index_market_data_incomplete");
-      }
-
-      return res.status(200).json({
-        symbol,
-        name: indexNames[symbol],
-        cmp,
-        previousClose: prev,
-        open,
-        currency: meta.currency || "INR",
-        exchange: "NSE",
-        source: "Yahoo Finance",
-        fetchedAt: new Date().toISOString()
-      });
+    if (indexPages[symbol]) {
+      const data = await fetchIndex(symbol);
+      return res.status(200).json(data);
     }
 
+    // Equity quote path — leave the currently working stock flow intact.
     const chartUrl =
       "https://query1.finance.yahoo.com/v8/finance/chart/" +
       encodeURIComponent(symbol) +
@@ -253,7 +269,6 @@ export default async function handler(req, res) {
     if (!meta) throw new Error("no_data");
 
     const cmp = Number(meta.regularMarketPrice);
-    // Yahoo may publish an index's previous close as chartPreviousClose.
     const prev = Number(meta.previousClose ?? meta.chartPreviousClose);
     const quote = result?.indicators?.quote?.[0];
     const opens = Array.isArray(quote?.open) ? quote.open : [];
