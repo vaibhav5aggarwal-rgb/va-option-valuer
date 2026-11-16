@@ -18,14 +18,14 @@ export default async function handler(req, res) {
 
     // Explicit NSE indices used by the option valuer.
     const knownIndices = [
-      { symbol: "^NSEI", name: "NIFTY 50" },
-      { symbol: "^NSEBANK", name: "NIFTY BANK" },
-      { symbol: "^CNXIT", name: "NIFTY IT" },
-      { symbol: "^CNXAUTO", name: "NIFTY AUTO" },
-      { symbol: "^CNXPHARMA", name: "NIFTY PHARMA" },
-      { symbol: "^CNXFINANCE", name: "NIFTY FINANCIAL SERVICES" },
-      { symbol: "^NSEMDCP50", name: "NIFTY MIDCAP 50" },
-      { symbol: "^BSESN", name: "SENSEX" }
+      { symbol: "MCIDX:in;NSX", name: "NIFTY 50" },
+      { symbol: "MCIDX:in;nbx", name: "NIFTY BANK" },
+      { symbol: "MCIDX:in;NIT", name: "NIFTY IT" },
+      { symbol: "MCIDX:in;NAU", name: "NIFTY AUTO" },
+      { symbol: "MCIDX:in;NPH", name: "NIFTY PHARMA" },
+      { symbol: "MCIDX:in;NFS", name: "NIFTY FINANCIAL SERVICES" },
+      { symbol: "MCIDX:in;ccx", name: "NIFTY MIDCAP 100" },
+      { symbol: "MCIDX:in;SEN", name: "SENSEX" }
     ];
 
     knownIndices.forEach(x => {
