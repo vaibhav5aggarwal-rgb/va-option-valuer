@@ -245,6 +245,13 @@ export default async function handler(req, res) {
 
     if (knownIndexMap[upper]) {
       symbol = knownIndexMap[upper];
+      if (symbol.startsWith("MCIDX:")) {
+        const indexCode = symbol.slice(6);
+        const indexName = moneycontrolIndexMap[indexCode];
+        if (!indexName) return res.status(404).json({ error: "Unsupported index." });
+        const data = await fetchMoneycontrolIndex(indexCode, indexName);
+        return res.status(200).json(data);
+      }
     } else if (/^\^[A-Za-z0-9]+$/.test(raw)) {
       symbol = raw.toUpperCase();
     } else if (raw.startsWith("MC:")) {
