@@ -39,6 +39,13 @@ export default async function handler(req, res) {
       if (score) results.push({ symbol: x.symbol, name: x.name, type: "INDEX", score });
     });
 
+    const exactIndex = results.find(x => x.type === "INDEX" && x.score === 2000);
+    if (exactIndex) {
+      return res.status(200).json({
+        results: [{ symbol: exactIndex.symbol, name: exactIndex.name, type: "INDEX" }]
+      });
+    }
+
     // Moneycontrol's own autocomplete is the primary company-name search.
     const mcUrl =
       "https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php" +
