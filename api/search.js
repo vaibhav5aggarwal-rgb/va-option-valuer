@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     // Explicit NSE indices used by the option valuer.
     const knownIndices = [
       { symbol: "^NSEI", name: "NIFTY 50" },
-      { symbol: "^NSEBANK", name: "NIFTY BANK" },
+      { symbol: "^NSEBANK", name: "NIFTY BANK", aliases: ["BANK NIFTY", "BANKNIFTY"] },
       { symbol: "^CNXIT", name: "NIFTY IT" },
       { symbol: "^CNXAUTO", name: "NIFTY AUTO" },
       { symbol: "^CNXPHARMA", name: "NIFTY PHARMA" },
@@ -29,13 +29,16 @@ export default async function handler(req, res) {
     ];
 
     knownIndices.forEach(x => {
-      const n = x.name.toLowerCase();
-      const compact = n.replace(/\s+/g, "");
+      const names = [x.name].concat(x.aliases || []);
       const queryCompact = term.replace(/\s+/g, "");
       let score = 0;
-      if (n === term || compact === queryCompact) score += 2000;
-      else if (n.startsWith(term) || compact.startsWith(queryCompact)) score += 1600;
-      else if (n.includes(term) || compact.includes(queryCompact)) score += 1200;
+      names.forEach(alias => {
+        const n = alias.toLowerCase();
+        const compact = n.replace(/\s+/g, "");
+        if (n === term || compact === queryCompact) score = Math.max(score, 2000);
+        else if (n.startsWith(term) || compact.startsWith(queryCompact)) score = Math.max(score, 1600);
+        else if (n.includes(term) || compact.includes(queryCompact)) score = Math.max(score, 1200);
+      });
       if (score) results.push({ symbol: x.symbol, name: x.name, type: "INDEX", score });
     });
 
